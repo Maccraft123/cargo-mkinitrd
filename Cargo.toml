@@ -4,4 +4,4 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-cpio = "0.2.2"
+nix = "0.25.0"

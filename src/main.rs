@@ -7,9 +7,27 @@ use std::process::Stdio;
 use std::io::Write;
 use std::io;
 use std::fs::File;
+use nix::sys::stat::{
+    makedev,
+    Mode,
+    SFlag,
+    mknod,
+};
 
 fn mkcpio(input: &PathBuf) -> Result<()> {
-    let out = File::create(format!("./target/initrd/{}.cpio", input.file_name().unwrap().to_string_lossy()))?;
+    let out_path = PathBuf::from(format!("./target/initrd/{}.cpio", input.file_name().unwrap().to_string_lossy()));
+
+    if out_path.exists() {
+        fs::remove_file(&out_path)?;
+    }
+    
+    if !PathBuf::from("./target/initrd/dev").exists() {
+        fs::create_dir("./target/initrd/dev/")?;
+        // create console device
+        mknod("./target/initrd/dev/console", SFlag::S_IFCHR, Mode::from_bits(0o622).unwrap(), makedev(5, 1))?;
+    }
+
+    let out = File::create(out_path)?;
     let mut cpio = Command::new("cpio")
         .arg("-D./target/initrd")
         .arg("--no-absolute-filenames")
@@ -27,6 +45,8 @@ fn mkcpio(input: &PathBuf) -> Result<()> {
 
     let cpio_stdin = cpio.stdin.as_mut().unwrap();
     cpio_stdin.write_all(b"init\n")?;
+    cpio_stdin.write_all(b"dev\n")?;
+    cpio_stdin.write_all(b"dev/console\n")?;
     drop(cpio_stdin);
 
     let out = cpio.wait_with_output()?;
@@ -43,9 +63,9 @@ fn main() -> Result<()> {
         .arg("--release")
         .args(vec!["--target", "x86_64-unknown-linux-musl"])
         .args(vec!["--config", "profile.release.opt-level='z'"])
-        .args(vec!["--config", "profile.release.strip=true"])
         .args(vec!["--config", "profile.release.lto=true"])
         .args(vec!["--config", "profile.release.codegen-units=1"])
+        .args(vec!["--config", "build.rustflags='-C relocation-model=pie -C strip=symbols -C code-model=small'"])
         .status()
         .map(|_| ())?;
 
